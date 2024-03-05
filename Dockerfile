@@ -2,7 +2,8 @@
 # to run the OpenAI compatible server.
 
 #################### BASE BUILD IMAGE ####################
-FROM nvidia/cuda:12.1.0-devel-ubuntu22.04 AS dev
+FROM nvcr.io/nvidia/pytorch:23.07-py3 AS dev
+# FROM nvidia/cuda:12.1.0-devel-ubuntu22.04 AS dev
 
 RUN apt-get update -y \
     && apt-get install -y python3-pip git
@@ -12,18 +13,28 @@ RUN apt-get update -y \
 # this won't be needed for future versions of this docker image
 # or future versions of triton.
 RUN ldconfig /usr/local/cuda-12.1/compat/
+ENV CUDA_HOME=/usr/local/cuda-12.1
 
 WORKDIR /workspace
 
 # install build and runtime dependencies
 COPY requirements.txt requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+    pip install -r requirements.txt --no-dependencies
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    XFORMERS_DISABLE_FLASH_ATTN=1 pip install xformers==0.0.23.post1 --no-dependencies 
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    git clone https://github.com/openai/triton ; cd triton/python ; git submodule update --init --recursive ;  python setup.py install
 
 # install development dependencies
 COPY requirements-dev.txt requirements-dev.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements-dev.txt
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install huggingface_hub transformers lark starlette interegular diskcache
 #################### BASE BUILD IMAGE ####################
 
 
@@ -78,22 +89,25 @@ RUN --mount=type=cache,target=/root/.cache/pip VLLM_USE_PRECOMPILED=1 pip instal
 # We used base cuda image because pytorch installs its own cuda libraries.
 # However cupy depends on cuda libraries so we had to switch to the runtime image
 # In the future it would be nice to get a container with pytorch and cuda without duplicating cuda
-FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04 AS vllm-base
-
+#FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04 AS vllm-base
+FROM dev AS vllm-base
 # libnccl required for ray
 RUN apt-get update -y \
     && apt-get install -y python3-pip
 
-WORKDIR /workspace
-COPY requirements.txt requirements.txt
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+#WORKDIR /workspace
+#COPY requirements.txt requirements.txt
+#RUN --mount=type=cache,target=/root/.cache/pip \
+#    pip install -r requirements.txt
+
+COPY --from=build /workspace/vllm/*.so /workspace/vllm/
+COPY vllm vllm
 #################### RUNTIME BASE IMAGE ####################
 
 
 #################### OPENAI API SERVER ####################
 # openai api server alternative
-FROM vllm-base AS vllm-openai
+FROM dev AS vllm-openai
 # install additional dependencies for openai api server
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install accelerate

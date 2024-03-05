@@ -403,6 +403,8 @@ def get_vllm_version() -> str:
             neuron_version_str = neuron_version.replace(".", "")[:3]
             version += f"+neuron{neuron_version_str}"
     else:
+        nvcc_cuda_version = get_nvcc_cuda_version(CUDA_HOME)
+        print(torch.version.cuda, torch.cuda.is_available())
         cuda_version = str(nvcc_cuda_version)
         if cuda_version != MAIN_CUDA_VERSION:
             cuda_version_str = cuda_version.replace(".", "")[:3]
